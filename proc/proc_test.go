@@ -2,6 +2,7 @@ package proc
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/constant"
 	"net"
@@ -1052,5 +1053,34 @@ func TestRecursiveStructure(t *testing.T) {
 		v, err := evalVariable(p, "aas")
 		assertNoError(err, t, "EvalVariable()")
 		t.Logf("v: %v\n", v)
+	})
+}
+
+func TestFunctionCall(t *testing.T) {
+	calltests := []struct {
+		fn   string
+		args []interface{}
+		ret  []*Variable
+		err  error
+	}{
+		{"double", []interface{}{2}, []*Variable{{Value: constant.MakeInt64(4)}}, nil},
+		{"double", []interface{}{}, []*Variable{}, errors.New("not enough arguments")},
+		{"double", []interface{}{"foo"}, []*Variable{}, errors.New("wrong type of argument in function call")},
+	}
+	withTestProcess("testfunctioncall", t, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), t, "Continue()")
+		for _, test := range calltests {
+			retvals, err := p.Call(test.fn, test.args)
+			if err != test.err {
+				t.Fatal("errors did not match")
+			}
+			for i := range test.ret {
+				if retvals[i].Value != test.ret[i].Value {
+					t.Fatalf("return value does not match, expected %v got %v",
+						retvals[i].Value,
+						test.ret[i].Value)
+				}
+			}
+		}
 	})
 }
