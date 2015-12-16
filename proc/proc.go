@@ -39,6 +39,9 @@ type Process struct {
 	// Normally SelectedGoroutine is CurrentThread.GetG, it will not be only if SwitchGoroutine is called with a goroutine that isn't attached to a thread
 	SelectedGoroutine *G
 
+	// Maps package names to package paths, needed to lookup types inside DWARF info
+	packageMap map[string]string
+
 	allGCache               []*G
 	dwarf                   *dwarf.Data
 	goSymTable              *gosym.Table
@@ -702,10 +705,13 @@ func (dbp *Process) execPtraceFunc(fn func()) {
 }
 
 func (dbp *Process) getGoInformation() (ver GoVersion, isextld bool, err error) {
-	vv, err := dbp.EvalPackageVariable("runtime.buildVersion")
+	vv, err := dbp.EvalPackageVariable("runtime/internal/sys.BuildVersion")
 	if err != nil {
-		err = fmt.Errorf("Could not determine version number: %v\n", err)
-		return
+		vv, err = dbp.EvalPackageVariable("runtime.buildVersion")
+		if err != nil {
+			err = fmt.Errorf("Could not determine version number: %v\n", err)
+			return
+		}
 	}
 
 	ver, ok := parseVersionString(constant.StringVal(vv.Value))
