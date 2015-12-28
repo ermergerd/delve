@@ -448,7 +448,7 @@ func TestEvalExpression(t *testing.T) {
 		// comparison operators
 		{"i2 == i3", false, "false", "", "", nil},
 		{"i2 == 2", false, "true", "", "", nil},
-		{"i2 == 2.0", false, "true", "", "", nil},
+		{"i2 == 2", false, "true", "", "", nil},
 		{"i2 == 3", false, "false", "", "", nil},
 		{"i2 != i3", false, "true", "", "", nil},
 		{"i2 < i3", false, "true", "", "", nil},
@@ -537,7 +537,7 @@ func TestEvalExpression(t *testing.T) {
 		{"nil[0]", false, "", "", "", fmt.Errorf("expression \"nil\" (nil) does not support indexing")},
 		{"nil[2:10]", false, "", "", "", fmt.Errorf("can not slice \"nil\" (type nil)")},
 		{"nil.member", false, "", "", "", fmt.Errorf("type nil is not a struct")},
-		{"(map[string]int)(0x4000)", false, "", "", "", fmt.Errorf("can not convert \"0x4000\" to *struct hash<string,int>")},
+		{"(map[string]main.astruct)(0x4000)", false, "", "", "", fmt.Errorf("can not convert \"0x4000\" to *struct hash<string,main.astruct>")},
 
 		// typecasts
 		{"uint(i2)", false, "2", "", "uint", nil},
