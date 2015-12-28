@@ -2,7 +2,6 @@ package proc
 
 import (
 	"debug/gosym"
-	"encoding/binary"
 	"fmt"
 	"path/filepath"
 
@@ -31,7 +30,7 @@ type Thread struct {
 // Holds information on the current instruction
 // address, the source file:line, and the function.
 type Location struct {
-	PC   uint64
+	PC   uintptr
 	File string
 	Line int
 	Fn   *gosym.Func
@@ -155,7 +154,7 @@ func (ge GoroutineExitingError) Error() string {
 
 // Set breakpoints at every line, and the return address. Also look for
 // a deferred function and set a breakpoint there too.
-func (thread *Thread) next(curpc uint64, fde *frame.FrameDescriptionEntry, file string, line int) error {
+func (thread *Thread) next(curpc uintptr, fde *frame.FrameDescriptionEntry, file string, line int) error {
 	pcs := thread.dbp.lineInfo.AllPCsBetween(fde.Begin(), fde.End(), file)
 
 	g, err := thread.GetG()
@@ -163,7 +162,7 @@ func (thread *Thread) next(curpc uint64, fde *frame.FrameDescriptionEntry, file 
 		return err
 	}
 	if g.DeferPC != 0 {
-		f, lineno, _ := thread.dbp.goSymTable.PCToLine(g.DeferPC)
+		f, lineno, _ := thread.dbp.goSymTable.PCToLine(uint64(g.DeferPC))
 		for {
 			lineno++
 			dpc, _, err := thread.dbp.goSymTable.LineToPC(f, lineno)
@@ -173,7 +172,7 @@ func (thread *Thread) next(curpc uint64, fde *frame.FrameDescriptionEntry, file 
 				// a fake breakpoint which will be cleaned up later.
 				thread.dbp.Breakpoints[g.DeferPC] = new(Breakpoint)
 				defer func() { delete(thread.dbp.Breakpoints, g.DeferPC) }()
-				if _, err = thread.dbp.SetTempBreakpoint(dpc); err != nil {
+				if _, err = thread.dbp.SetTempBreakpoint(uintptr(dpc)); err != nil {
 					return err
 				}
 				break
@@ -195,7 +194,7 @@ func (thread *Thread) next(curpc uint64, fde *frame.FrameDescriptionEntry, file 
 	}
 
 	if !covered {
-		fn := thread.dbp.goSymTable.PCToFunc(ret)
+		fn := thread.dbp.goSymTable.PCToFunc(uint64(ret))
 		if fn != nil && fn.Name == "runtime.goexit" {
 			g, err := thread.GetG()
 			if err != nil {
@@ -211,7 +210,7 @@ func (thread *Thread) next(curpc uint64, fde *frame.FrameDescriptionEntry, file 
 // Set a breakpoint at every reachable location, as well as the return address. Without
 // the benefit of an AST we can't be sure we're not at a branching statement and thus
 // cannot accurately predict where we may end up.
-func (thread *Thread) cnext(curpc uint64, fde *frame.FrameDescriptionEntry, file string) error {
+func (thread *Thread) cnext(curpc uintptr, fde *frame.FrameDescriptionEntry, file string) error {
 	pcs := thread.dbp.lineInfo.AllPCsBetween(fde.Begin(), fde.End(), file)
 	ret, err := thread.ReturnAddress()
 	if err != nil {
@@ -221,7 +220,7 @@ func (thread *Thread) cnext(curpc uint64, fde *frame.FrameDescriptionEntry, file
 	return thread.setNextTempBreakpoints(curpc, pcs)
 }
 
-func (thread *Thread) setNextTempBreakpoints(curpc uint64, pcs []uint64) error {
+func (thread *Thread) setNextTempBreakpoints(curpc uintptr, pcs []uintptr) error {
 	for i := range pcs {
 		if pcs[i] == curpc || pcs[i] == curpc-1 {
 			continue
@@ -236,7 +235,7 @@ func (thread *Thread) setNextTempBreakpoints(curpc uint64, pcs []uint64) error {
 }
 
 // Sets the PC for this thread.
-func (thread *Thread) SetPC(pc uint64) error {
+func (thread *Thread) SetPC(pc uintptr) error {
 	regs, err := thread.Registers()
 	if err != nil {
 		return err
@@ -270,12 +269,11 @@ func (thread *Thread) GetG() (g *G, err error) {
 		// thread.dbp.arch isn't setup yet (it needs a CurrentThread to read global variables from)
 		return nil, fmt.Errorf("g struct offset not initialized")
 	}
-
-	gaddrbs, err := thread.readMemory(uintptr(regs.TLS()+thread.dbp.arch.GStructOffset()), thread.dbp.arch.PtrSize())
+	
+	gaddr, err := thread.readPtrRaw(uintptr(regs.TLS()+uintptr(thread.dbp.arch.GStructOffset())))
 	if err != nil {
 		return nil, err
 	}
-	gaddr := binary.LittleEndian.Uint64(gaddrbs)
 
 	g, err = parseG(thread, gaddr, false)
 	if err == nil {

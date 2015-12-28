@@ -182,7 +182,17 @@ func (dbp *Process) parseDebugFrame(exe *elf.File, wg *sync.WaitGroup) {
 			fmt.Println("could not get .debug_frame section", err)
 			os.Exit(1)
 		}
-		dbp.frameEntries = frame.Parse(debugFrame)
+		
+		ptrSize := uint(8)
+		if exe.Class == elf.ELFCLASS32 {
+			ptrSize = uint(4)
+		} else if exe.Class == elf.ELFCLASS64 {
+			ptrSize = uint(8)
+		} else {
+			fmt.Println("Unknown ELF class")
+			os.Exit(1)
+		}
+		dbp.frameEntries = frame.Parse(debugFrame, exe.ByteOrder, ptrSize)
 	} else {
 		fmt.Println("could not find .debug_frame section in binary")
 		os.Exit(1)

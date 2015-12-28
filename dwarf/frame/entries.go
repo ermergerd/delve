@@ -14,7 +14,7 @@ type CommonInformationEntry struct {
 	Augmentation          string
 	CodeAlignmentFactor   uint64
 	DataAlignmentFactor   int64
-	ReturnAddressRegister uint64
+	ReturnAddressRegister uintptr
 	InitialInstructions   []byte
 }
 
@@ -24,12 +24,12 @@ type FrameDescriptionEntry struct {
 	Length       uint32
 	CIE          *CommonInformationEntry
 	Instructions []byte
-	begin, end   uint64
+	begin, end   uintptr
 }
 
 // Returns whether or not the given address is within the
 // bounds of this frame.
-func (fde *FrameDescriptionEntry) Cover(addr uint64) bool {
+func (fde *FrameDescriptionEntry) Cover(addr uintptr) bool {
 	if (addr - fde.begin) < fde.end {
 		return true
 	}
@@ -37,24 +37,24 @@ func (fde *FrameDescriptionEntry) Cover(addr uint64) bool {
 }
 
 // Address of first location for this frame.
-func (fde *FrameDescriptionEntry) Begin() uint64 {
+func (fde *FrameDescriptionEntry) Begin() uintptr {
 	return fde.begin
 }
 
 // Address of last location for this frame.
-func (fde *FrameDescriptionEntry) End() uint64 {
+func (fde *FrameDescriptionEntry) End() uintptr {
 	return fde.begin + fde.end
 }
 
 // Set up frame for the given PC.
-func (fde *FrameDescriptionEntry) EstablishFrame(pc uint64) *FrameContext {
+func (fde *FrameDescriptionEntry) EstablishFrame(pc uintptr) *FrameContext {
 	return executeDwarfProgramUntilPC(fde, pc)
 }
 
 // Return the offset from the current SP that the return address is stored at.
-func (fde *FrameDescriptionEntry) ReturnAddressOffset(pc uint64) (frameOffset, returnAddressOffset int64) {
+func (fde *FrameDescriptionEntry) ReturnAddressOffset(pc uintptr) (frameOffset, returnAddressOffset int64) {
 	frame := fde.EstablishFrame(pc)
-	return frame.cfa.offset, frame.regs[fde.CIE.ReturnAddressRegister].offset
+	return frame.cfa.offset, frame.regs[uint64(fde.CIE.ReturnAddressRegister)].offset
 }
 
 type FrameDescriptionEntries []*FrameDescriptionEntry
@@ -64,7 +64,7 @@ func NewFrameIndex() FrameDescriptionEntries {
 }
 
 // Returns the Frame Description Entry for the given PC.
-func (fdes FrameDescriptionEntries) FDEForPC(pc uint64) (*FrameDescriptionEntry, error) {
+func (fdes FrameDescriptionEntries) FDEForPC(pc uintptr) (*FrameDescriptionEntry, error) {
 	idx := sort.Search(len(fdes), func(i int) bool {
 		if fdes[i].Cover(pc) {
 			return true
@@ -80,6 +80,6 @@ func (fdes FrameDescriptionEntries) FDEForPC(pc uint64) (*FrameDescriptionEntry,
 	return fdes[idx], nil
 }
 
-func (frame *FrameDescriptionEntry) LessThan(pc uint64) bool {
+func (frame *FrameDescriptionEntry) LessThan(pc uintptr) bool {
 	return frame.End() <= pc
 }

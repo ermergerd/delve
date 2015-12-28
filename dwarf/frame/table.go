@@ -23,8 +23,8 @@ type DWRule struct {
 }
 
 type FrameContext struct {
-	loc           uint64
-	address       uint64
+	loc           uintptr
+	address       uintptr
 	cfa           CurrentFrameAddress
 	regs          map[uint64]DWRule
 	initialRegs   map[uint64]DWRule
@@ -136,7 +136,7 @@ func executeCIEInstructions(cie *CommonInformationEntry) *FrameContext {
 }
 
 // Unwind the stack to find the return address register.
-func executeDwarfProgramUntilPC(fde *FrameDescriptionEntry, pc uint64) *FrameContext {
+func executeDwarfProgramUntilPC(fde *FrameDescriptionEntry, pc uintptr) *FrameContext {
 	frame := executeCIEInstructions(fde.CIE)
 	frame.loc = fde.Begin()
 	frame.address = pc
@@ -223,7 +223,7 @@ func advanceloc(frame *FrameContext) {
 	}
 
 	delta := b & low_6_offset
-	frame.loc += uint64(delta) * frame.codeAlignment
+	frame.loc += uintptr(uint64(delta) * frame.codeAlignment)
 }
 
 func advanceloc1(frame *FrameContext) {
@@ -232,21 +232,21 @@ func advanceloc1(frame *FrameContext) {
 		panic("Could not read byte")
 	}
 
-	frame.loc += uint64(delta) * frame.codeAlignment
+	frame.loc += uintptr(uint64(delta) * frame.codeAlignment)
 }
 
 func advanceloc2(frame *FrameContext) {
 	var delta uint16
 	binary.Read(frame.buf, binary.BigEndian, &delta)
 
-	frame.loc += uint64(delta) * frame.codeAlignment
+	frame.loc += uintptr(uint64(delta) * frame.codeAlignment)
 }
 
 func advanceloc4(frame *FrameContext) {
 	var delta uint32
 	binary.Read(frame.buf, binary.BigEndian, &delta)
 
-	frame.loc += uint64(delta) * frame.codeAlignment
+	frame.loc += uintptr(uint64(delta) * frame.codeAlignment)
 }
 
 func offset(frame *FrameContext) {
@@ -278,8 +278,9 @@ func restore(frame *FrameContext) {
 	}
 }
 
+// TODO: Figure out how to use the architecture endianness
 func setloc(frame *FrameContext) {
-	var loc uint64
+	var loc uintptr
 	binary.Read(frame.buf, binary.BigEndian, &loc)
 
 	frame.loc = loc

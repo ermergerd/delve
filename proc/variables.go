@@ -1,13 +1,12 @@
 package proc
 
 import (
-	"bytes"
 	"debug/dwarf"
-	"encoding/binary"
 	"fmt"
 	"go/constant"
 	"go/parser"
 	"go/token"
+	"math"
 	"reflect"
 	"strings"
 	"unsafe"
@@ -84,18 +83,18 @@ const (
 // Represents a runtime G (goroutine) structure (at least the
 // fields that Delve is interested in).
 type G struct {
-	Id         int    // Goroutine ID
-	PC         uint64 // PC of goroutine when it was parked.
-	SP         uint64 // SP of goroutine when it was parked.
-	GoPC       uint64 // PC of 'go' statement that created this goroutine.
-	WaitReason string // Reason for goroutine being parked.
+	Id         int     // Goroutine ID
+	PC         uintptr // PC of goroutine when it was parked.
+	SP         uintptr // SP of goroutine when it was parked.
+	GoPC       uintptr // PC of 'go' statement that created this goroutine.
+	WaitReason string  // Reason for goroutine being parked.
 	Status     uint64
 
 	// Information on goroutine location
 	CurrentLoc Location
 
 	// PC of entry to top-most deferred function.
-	DeferPC uint64
+	DeferPC uintptr
 
 	// Thread that this goroutine is currently allocated to
 	thread *Thread
@@ -106,7 +105,7 @@ type G struct {
 // Scope for variable evaluation
 type EvalScope struct {
 	Thread *Thread
-	PC     uint64
+	PC     uintptr
 	CFA    int64
 }
 
@@ -297,7 +296,7 @@ func (g *G) ChanRecvBlocked() bool {
 }
 
 // chanRecvReturnAddr returns the address of the return from a channel read.
-func (g *G) chanRecvReturnAddr(dbp *Process) (uint64, error) {
+func (g *G) chanRecvReturnAddr(dbp *Process) (uintptr, error) {
 	locs, err := dbp.GoroutineStacktrace(g, 4)
 	if err != nil {
 		return 0, err
@@ -316,17 +315,17 @@ func (ng NoGError) Error() string {
 	return fmt.Sprintf("no G executing on thread %d", ng.tid)
 }
 
-func parseG(thread *Thread, gaddr uint64, deref bool) (*G, error) {
+func parseG(thread *Thread, gaddr uintptr, deref bool) (*G, error) {
 	initialInstructions := make([]byte, thread.dbp.arch.PtrSize()+1)
 	initialInstructions[0] = op.DW_OP_addr
-	binary.LittleEndian.PutUint64(initialInstructions[1:], gaddr)
+	thread.dbp.arch.EncodePtr(gaddr, initialInstructions[1:])
 	if deref {
-		gaddrbytes, err := thread.readMemory(uintptr(gaddr), thread.dbp.arch.PtrSize())
+		gaddrbytes, err := thread.readMemory(gaddr, thread.dbp.arch.PtrSize())
 		if err != nil {
 			return nil, fmt.Errorf("error derefing *G %s", err)
 		}
 		initialInstructions = append([]byte{op.DW_OP_addr}, gaddrbytes...)
-		gaddr = binary.LittleEndian.Uint64(gaddrbytes)
+		gaddr = thread.dbp.arch.DecodePtr(gaddrbytes)
 		if gaddr == 0 {
 			return nil, NoGError{tid: thread.Id}
 		}
@@ -344,24 +343,23 @@ func parseG(thread *Thread, gaddr uint64, deref bool) (*G, error) {
 	if err != nil {
 		return nil, err
 	}
-	var deferPC uint64
+	var deferPC uintptr
 	// Dereference *defer pointer
-	deferAddrBytes, err := thread.readMemory(uintptr(deferAddr), thread.dbp.arch.PtrSize())
+	deferAddrBytes, err := thread.readMemory(deferAddr, thread.dbp.arch.PtrSize())
 	if err != nil {
 		return nil, fmt.Errorf("error derefing defer %s", err)
 	}
-	if binary.LittleEndian.Uint64(deferAddrBytes) != 0 {
+	if thread.dbp.arch.DecodePtr(deferAddrBytes) != 0 {
 		initialDeferInstructions := append([]byte{op.DW_OP_addr}, deferAddrBytes...)
 		_, err = rdr.SeekToTypeNamed("runtime._defer")
 		if err != nil {
 			return nil, err
 		}
 		deferPCAddr, err := rdr.AddrForMember("fn", initialDeferInstructions)
-		deferPC, err = thread.readUintRaw(uintptr(deferPCAddr), 8)
 		if err != nil {
 			return nil, err
 		}
-		deferPC, err = thread.readUintRaw(uintptr(deferPC), 8)
+		deferPC, err = thread.readPtrRaw(deferPCAddr)
 		if err != nil {
 			return nil, err
 		}
@@ -381,11 +379,11 @@ func parseG(thread *Thread, gaddr uint64, deref bool) (*G, error) {
 		return nil, err
 	}
 	// From sched, let's parse PC and SP.
-	sp, err := thread.readUintRaw(uintptr(schedAddr), 8)
+	sp, err := thread.readPtrRaw(schedAddr)
 	if err != nil {
 		return nil, err
 	}
-	pc, err := thread.readUintRaw(uintptr(schedAddr+uint64(thread.dbp.arch.PtrSize())), 8)
+	pc, err := thread.readPtrRaw(schedAddr+uintptr(thread.dbp.arch.PtrSize()))
 	if err != nil {
 		return nil, err
 	}
@@ -394,13 +392,13 @@ func parseG(thread *Thread, gaddr uint64, deref bool) (*G, error) {
 	if err != nil {
 		return nil, err
 	}
-	atomicStatus, err := thread.readUintRaw(uintptr(atomicStatusAddr), 4)
+	atomicStatus, err := thread.readUintRaw(atomicStatusAddr, 4)
 	// Parse goid
 	goidAddr, err := rdr.AddrForMember("goid", initialInstructions)
 	if err != nil {
 		return nil, err
 	}
-	goid, err := thread.readIntRaw(uintptr(goidAddr), 8)
+	goid, err := thread.readIntRaw(goidAddr, 8)
 	if err != nil {
 		return nil, err
 	}
@@ -409,7 +407,7 @@ func parseG(thread *Thread, gaddr uint64, deref bool) (*G, error) {
 	if err != nil {
 		return nil, err
 	}
-	waitreason, _, err := thread.readString(uintptr(waitReasonAddr))
+	waitreason, _, err := thread.readString(waitReasonAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -418,12 +416,12 @@ func parseG(thread *Thread, gaddr uint64, deref bool) (*G, error) {
 	if err != nil {
 		return nil, err
 	}
-	gopc, err := thread.readUintRaw(uintptr(gopcAddr), 8)
+	gopc, err := thread.readPtrRaw(gopcAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	f, l, fn := thread.dbp.goSymTable.PCToLine(pc)
+	f, l, fn := thread.dbp.goSymTable.PCToLine(uint64(pc))
 	g := &G{
 		Id:         int(goid),
 		GoPC:       gopc,
@@ -467,7 +465,7 @@ func (g *G) UserCurrent() Location {
 }
 
 func (g *G) Go() Location {
-	f, l, fn := g.dbp.goSymTable.PCToLine(g.GoPC)
+	f, l, fn := g.dbp.goSymTable.PCToLine(uint64(g.GoPC))
 	return Location{PC: g.GoPC, File: f, Line: l, Fn: fn}
 }
 
@@ -722,8 +720,8 @@ func (v *Variable) maybeDereference() *Variable {
 
 	switch t := v.RealType.(type) {
 	case *dwarf.PtrType:
-		ptrval, err := v.thread.readUintRaw(uintptr(v.Addr), int64(v.thread.dbp.arch.PtrSize()))
-		r := newVariable("", uintptr(ptrval), t.Type, v.thread)
+		ptrval, err := v.thread.readPtrRaw(v.Addr)
+		r := newVariable("", ptrval, t.Type, v.thread)
 		if err != nil {
 			r.Unreadable = err
 		}
@@ -850,21 +848,21 @@ func (thread *Thread) readStringInfo(addr uintptr) (uintptr, int64, error) {
 	// http://research.swtch.com/godata
 
 	// read len
-	val, err := thread.readMemory(addr+uintptr(thread.dbp.arch.PtrSize()), thread.dbp.arch.PtrSize())
+	val, err := thread.readPtrRaw(addr+uintptr(thread.dbp.arch.PtrSize()))
 	if err != nil {
 		return 0, 0, fmt.Errorf("could not read string len %s", err)
 	}
-	strlen := int64(binary.LittleEndian.Uint64(val))
+	strlen := int64(val)
 	if strlen < 0 {
 		return 0, 0, fmt.Errorf("invalid length: %d", strlen)
 	}
 
 	// read addr
-	val, err = thread.readMemory(addr, thread.dbp.arch.PtrSize())
+	addr, err = thread.readPtrRaw(addr)
 	if err != nil {
 		return 0, 0, fmt.Errorf("could not read string pointer %s", err)
 	}
-	addr = uintptr(binary.LittleEndian.Uint64(val))
+
 	if addr == 0 {
 		return 0, 0, nil
 	}
@@ -1002,6 +1000,15 @@ func (v *Variable) writeComplex(real, imag float64, size int64) error {
 	return imagaddr.writeFloatRaw(imag, int64(size/2))
 }
 
+func (thread *Thread) readPtrRaw(addr uintptr) (uintptr, error) {
+	val, err := thread.readMemory(addr, thread.dbp.arch.PtrSize())
+	if err != nil {
+		return 0, err
+	}
+	
+	return thread.dbp.arch.DecodePtr(val), nil
+}
+
 func (thread *Thread) readIntRaw(addr uintptr, size int64) (int64, error) {
 	var n int64
 
@@ -1014,11 +1021,11 @@ func (thread *Thread) readIntRaw(addr uintptr, size int64) (int64, error) {
 	case 1:
 		n = int64(val[0])
 	case 2:
-		n = int64(binary.LittleEndian.Uint16(val))
+		n = int64(thread.dbp.arch.Uint16(val))
 	case 4:
-		n = int64(binary.LittleEndian.Uint32(val))
+		n = int64(thread.dbp.arch.Uint32(val))
 	case 8:
-		n = int64(binary.LittleEndian.Uint64(val))
+		n = int64(thread.dbp.arch.Uint64(val))
 	}
 
 	return n, nil
@@ -1031,11 +1038,11 @@ func (v *Variable) writeUint(value uint64, size int64) error {
 	case 1:
 		val[0] = byte(value)
 	case 2:
-		binary.LittleEndian.PutUint16(val, uint16(value))
+		v.thread.dbp.arch.PutUint16(val, uint16(value))
 	case 4:
-		binary.LittleEndian.PutUint32(val, uint32(value))
+		v.thread.dbp.arch.PutUint32(val, uint32(value))
 	case 8:
-		binary.LittleEndian.PutUint64(val, uint64(value))
+		v.thread.dbp.arch.PutUint64(val, uint64(value))
 	}
 
 	_, err := v.thread.writeMemory(v.Addr, val)
@@ -1054,11 +1061,11 @@ func (thread *Thread) readUintRaw(addr uintptr, size int64) (uint64, error) {
 	case 1:
 		n = uint64(val[0])
 	case 2:
-		n = uint64(binary.LittleEndian.Uint16(val))
+		n = uint64(thread.dbp.arch.Uint16(val))
 	case 4:
-		n = uint64(binary.LittleEndian.Uint32(val))
+		n = uint64(thread.dbp.arch.Uint32(val))
 	case 8:
-		n = uint64(binary.LittleEndian.Uint64(val))
+		n = uint64(thread.dbp.arch.Uint64(val))
 	}
 
 	return n, nil
@@ -1069,35 +1076,32 @@ func (v *Variable) readFloatRaw(size int64) (float64, error) {
 	if err != nil {
 		return 0.0, err
 	}
-	buf := bytes.NewBuffer(val)
 
 	switch size {
 	case 4:
-		n := float32(0)
-		binary.Read(buf, binary.LittleEndian, &n)
-		return float64(n), nil
+		n := v.thread.dbp.arch.Uint32(val)
+		return float64(math.Float32frombits(n)), nil
 	case 8:
-		n := float64(0)
-		binary.Read(buf, binary.LittleEndian, &n)
-		return n, nil
+		n := v.thread.dbp.arch.Uint64(val)
+		return math.Float64frombits(n), nil
 	}
 
 	return 0.0, fmt.Errorf("could not read float")
 }
 
 func (v *Variable) writeFloatRaw(f float64, size int64) error {
-	buf := bytes.NewBuffer(make([]byte, 0, size))
+	buf := make([]byte, size)
 
 	switch size {
 	case 4:
-		n := float32(f)
-		binary.Write(buf, binary.LittleEndian, n)
+		n := math.Float32bits(float32(f))
+		v.thread.dbp.arch.PutUint32(buf, n)
 	case 8:
-		n := float64(f)
-		binary.Write(buf, binary.LittleEndian, n)
+		n := math.Float64bits(f)
+		v.thread.dbp.arch.PutUint64(buf, n)
 	}
 
-	_, err := v.thread.writeMemory(v.Addr, buf.Bytes())
+	_, err := v.thread.writeMemory(v.Addr, buf)
 	return err
 }
 
@@ -1109,27 +1113,26 @@ func (v *Variable) writeBool(value bool) error {
 }
 
 func (v *Variable) readFunctionPtr() {
-	val, err := v.thread.readMemory(v.Addr, v.thread.dbp.arch.PtrSize())
+	fnaddr, err := v.thread.readPtrRaw(v.Addr)
 	if err != nil {
 		v.Unreadable = err
 		return
 	}
 
 	// dereference pointer to find function pc
-	fnaddr := uintptr(binary.LittleEndian.Uint64(val))
 	if fnaddr == 0 {
 		v.base = 0
 		v.Value = constant.MakeString("")
 		return
 	}
 
-	val, err = v.thread.readMemory(fnaddr, v.thread.dbp.arch.PtrSize())
+	val, err := v.thread.readPtrRaw(fnaddr)
 	if err != nil {
 		v.Unreadable = err
 		return
 	}
 
-	v.base = uintptr(binary.LittleEndian.Uint64(val))
+	v.base = val
 	fn := v.thread.dbp.goSymTable.PCToFunc(uint64(v.base))
 	if fn == nil {
 		v.Unreadable = fmt.Errorf("could not find function for %#v", v.base)

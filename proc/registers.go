@@ -7,11 +7,11 @@ import "fmt"
 // we need independant of arch. The concrete register types
 // will be different depending on OS/Arch.
 type Registers interface {
-	PC() uint64
-	SP() uint64
-	CX() uint64
-	TLS() uint64
-	SetPC(*Thread, uint64) error
+	PC() uintptr
+	SP() uintptr
+	CX() uintptr
+	TLS() uintptr
+	SetPC(*Thread, uintptr) error
 	String() string
 }
 
@@ -25,7 +25,7 @@ func (thread *Thread) Registers() (Registers, error) {
 }
 
 // Returns the current PC for this thread.
-func (thread *Thread) PC() (uint64, error) {
+func (thread *Thread) PC() (uintptr, error) {
 	regs, err := thread.Registers()
 	if err != nil {
 		return 0, err

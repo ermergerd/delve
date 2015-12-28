@@ -13,7 +13,7 @@ import (
 const maxFindLocationCandidates = 5
 
 type LocationSpec interface {
-	Find(d *Debugger, pc uint64, locStr string) ([]api.Location, error)
+	Find(d *Debugger, pc uintptr, locStr string) ([]api.Location, error)
 }
 
 type NormalLocationSpec struct {
@@ -27,7 +27,7 @@ type RegexLocationSpec struct {
 }
 
 type AddrLocationSpec struct {
-	Addr uint64
+	Addr uintptr
 }
 
 type OffsetLocationSpec struct {
@@ -88,7 +88,7 @@ func parseLocationSpec(locStr string) (LocationSpec, error) {
 		if addr == 0 {
 			return nil, malformed("can not set breakpoint at address 0x0")
 		}
-		return &AddrLocationSpec{uint64(addr)}, nil
+		return &AddrLocationSpec{uintptr(addr)}, nil
 
 	default:
 		return parseLocationSpecDefault(locStr, rest)
@@ -232,7 +232,7 @@ func (spec *FuncLocationSpec) Match(sym *gosym.Sym) bool {
 	return true
 }
 
-func (loc *RegexLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]api.Location, error) {
+func (loc *RegexLocationSpec) Find(d *Debugger, pc uintptr, locStr string) ([]api.Location, error) {
 	funcs := d.process.Funcs()
 	matches, err := regexFilterFuncs(loc.FuncRegex, funcs)
 	if err != nil {
@@ -248,7 +248,7 @@ func (loc *RegexLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]api
 	return r, nil
 }
 
-func (loc *AddrLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]api.Location, error) {
+func (loc *AddrLocationSpec) Find(d *Debugger, pc uintptr, locStr string) ([]api.Location, error) {
 	return []api.Location{{PC: loc.Addr}}, nil
 }
 
@@ -283,7 +283,7 @@ func (ale AmbiguousLocationError) Error() string {
 	return fmt.Sprintf("Location \"%s\" ambiguous: %s…", ale.Location, strings.Join(candidates, ", "))
 }
 
-func (loc *NormalLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]api.Location, error) {
+func (loc *NormalLocationSpec) Find(d *Debugger, pc uintptr, locStr string) ([]api.Location, error) {
 	funcs := d.process.Funcs()
 	files := d.process.Sources()
 
@@ -313,7 +313,7 @@ func (loc *NormalLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]ap
 
 	switch len(candidates) {
 	case 1:
-		var addr uint64
+		var addr uintptr
 		var err error
 		if candidates[0][0] == '/' {
 			if loc.LineOffset < 0 {
@@ -339,7 +339,7 @@ func (loc *NormalLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]ap
 	}
 }
 
-func (loc *OffsetLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]api.Location, error) {
+func (loc *OffsetLocationSpec) Find(d *Debugger, pc uintptr, locStr string) ([]api.Location, error) {
 	file, line, fn := d.process.PCToLine(pc)
 	if fn == nil {
 		return nil, fmt.Errorf("could not determine current location")
@@ -348,7 +348,7 @@ func (loc *OffsetLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]ap
 	return []api.Location{{PC: addr}}, err
 }
 
-func (loc *LineLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]api.Location, error) {
+func (loc *LineLocationSpec) Find(d *Debugger, pc uintptr, locStr string) ([]api.Location, error) {
 	file, _, fn := d.process.PCToLine(pc)
 	if fn == nil {
 		return nil, fmt.Errorf("could not determine current location")

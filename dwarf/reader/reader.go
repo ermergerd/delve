@@ -34,7 +34,7 @@ func (reader *Reader) SeekToEntry(entry *dwarf.Entry) error {
 
 // SeekToFunctionEntry moves the reader to the function that includes the
 // specified program counter.
-func (reader *Reader) SeekToFunction(pc uint64) (*dwarf.Entry, error) {
+func (reader *Reader) SeekToFunction(pc uintptr) (*dwarf.Entry, error) {
 	reader.Seek(0)
 	for entry, err := reader.Next(); entry != nil; entry, err = reader.Next() {
 		if err != nil {
@@ -45,12 +45,12 @@ func (reader *Reader) SeekToFunction(pc uint64) (*dwarf.Entry, error) {
 			continue
 		}
 
-		lowpc, ok := entry.Val(dwarf.AttrLowpc).(uint64)
+		lowpc, ok := entry.Val(dwarf.AttrLowpc).(uintptr)
 		if !ok {
 			continue
 		}
 
-		highpc, ok := entry.Val(dwarf.AttrHighpc).(uint64)
+		highpc, ok := entry.Val(dwarf.AttrHighpc).(uintptr)
 		if !ok {
 			continue
 		}
@@ -64,7 +64,7 @@ func (reader *Reader) SeekToFunction(pc uint64) (*dwarf.Entry, error) {
 }
 
 // Returns the address for the named entry.
-func (reader *Reader) AddrFor(name string) (uint64, error) {
+func (reader *Reader) AddrFor(name string) (uintptr, error) {
 	entry, err := reader.FindEntryNamed(name, false)
 	if err != nil {
 		return 0, err
@@ -77,12 +77,12 @@ func (reader *Reader) AddrFor(name string) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return uint64(addr), nil
+	return uintptr(addr), nil
 }
 
 // Returns the address for the named struct member. Expects the reader to be at the parent entry
 // or one of the parents children, thus does not seek to parent by itself.
-func (reader *Reader) AddrForMember(member string, initialInstructions []byte) (uint64, error) {
+func (reader *Reader) AddrForMember(member string, initialInstructions []byte) (uintptr, error) {
 	for {
 		entry, err := reader.NextMemberVariable()
 		if err != nil {
@@ -100,7 +100,7 @@ func (reader *Reader) AddrForMember(member string, initialInstructions []byte) (
 			continue
 		}
 		addr, err := op.ExecuteStackProgram(0, append(initialInstructions, instructions...))
-		return uint64(addr), err
+		return uintptr(addr), err
 	}
 }
 

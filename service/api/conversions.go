@@ -36,7 +36,7 @@ func ConvertThread(th *proc.Thread) *Thread {
 		function *Function
 		file     string
 		line     int
-		pc       uint64
+		pc       uintptr
 	)
 
 	loc, err := th.Location()

@@ -56,7 +56,7 @@ func (thread *Thread) blocked() bool {
 	if err != nil {
 		return false
 	}
-	fn := thread.dbp.goSymTable.PCToFunc(pc)
+	fn := thread.dbp.goSymTable.PCToFunc(uint64(pc))
 	if fn == nil {
 		return false
 	}

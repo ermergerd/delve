@@ -192,7 +192,17 @@ func (dbp *Process) parseDebugFrame(exe *macho.File, wg *sync.WaitGroup) {
 			fmt.Println("could not get __debug_frame section", err)
 			os.Exit(1)
 		}
-		dbp.frameEntries = frame.Parse(debugFrame)
+		ptrSize := uint(8)
+		switch exe.Cpu {
+		case macho.Cpu386, macho.CpuArm, macho.CpuPpc:
+			ptrSize = uint(4)
+		case macho.CpuAmd64, macho.CpuPpc64:
+			ptrSize = uint(8)
+		default:
+			fmt.Println("Unknown Macho CPU type")
+			os.Exit(1)
+		}
+		dbp.frameEntries = frame.Parse(debugFrame, exe.ByteOrder, ptrSize)
 	} else {
 		fmt.Println("could not find __debug_frame section in binary")
 		os.Exit(1)

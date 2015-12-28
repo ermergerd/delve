@@ -505,13 +505,13 @@ func clearAll(t *Term, args string) error {
 		return err
 	}
 
-	var locPCs map[uint64]struct{}
+	var locPCs map[uintptr]struct{}
 	if args != "" {
 		locs, err := t.client.FindLocation(api.EvalScope{-1, 0}, args)
 		if err != nil {
 			return err
 		}
-		locPCs = make(map[uint64]struct{})
+		locPCs = make(map[uintptr]struct{})
 		for _, loc := range locs {
 			locPCs[loc.PC] = struct{}{}
 		}

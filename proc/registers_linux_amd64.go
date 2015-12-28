@@ -48,23 +48,23 @@ func (r *Regs) String() string {
 	return buf.String()
 }
 
-func (r *Regs) PC() uint64 {
-	return r.regs.PC()
+func (r *Regs) PC() uintptr {
+	return uintptr(r.regs.PC())
 }
 
-func (r *Regs) SP() uint64 {
-	return r.regs.Rsp
+func (r *Regs) SP() uintptr {
+	return uintptr(r.regs.Rsp)
 }
 
-func (r *Regs) CX() uint64 {
-	return r.regs.Rcx
+func (r *Regs) CX() uintptr {
+	return uintptr(r.regs.Rcx)
 }
 
-func (r *Regs) TLS() uint64 {
-	return r.regs.Fs_base
+func (r *Regs) TLS() uintptr {
+	return uintptr(r.regs.Fs_base)
 }
 
-func (r *Regs) SetPC(thread *Thread, pc uint64) (err error) {
+func (r *Regs) SetPC(thread *Thread, pc uintptr) (err error) {
 	r.regs.SetPC(pc)
 	thread.dbp.execPtraceFunc(func() { err = sys.PtraceSetRegs(thread.Id, r.regs) })
 	return

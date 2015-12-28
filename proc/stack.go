@@ -1,7 +1,6 @@
 package proc
 
 import (
-	"encoding/binary"
 	"fmt"
 )
 
@@ -19,7 +18,7 @@ type Stackframe struct {
 	// Address of the call instruction for the function above on the call stack.
 	Call Location
 	CFA  int64
-	Ret  uint64
+	Ret  uintptr
 }
 
 func (frame *Stackframe) Scope(thread *Thread) *EvalScope {
@@ -28,7 +27,7 @@ func (frame *Stackframe) Scope(thread *Thread) *EvalScope {
 
 // Takes an offset from RSP and returns the address of the
 // instruction the current function is going to return to.
-func (thread *Thread) ReturnAddress() (uint64, error) {
+func (thread *Thread) ReturnAddress() (uintptr, error) {
 	locations, err := thread.Stacktrace(2)
 	if err != nil {
 		return 0, err
@@ -71,7 +70,7 @@ func (n NullAddrError) Error() string {
 }
 
 type StackIterator struct {
-	pc, sp uint64
+	pc, sp uintptr
 	top    bool
 	frame  Stackframe
 	dbp    *Process
@@ -79,7 +78,7 @@ type StackIterator struct {
 	err    error
 }
 
-func newStackIterator(dbp *Process, pc, sp uint64) *StackIterator {
+func newStackIterator(dbp *Process, pc, sp uintptr) *StackIterator {
 	return &StackIterator{pc: pc, sp: sp, top: true, dbp: dbp, err: nil, atend: false}
 }
 
@@ -108,7 +107,7 @@ func (it *StackIterator) Next() bool {
 
 	it.top = false
 	it.pc = it.frame.Ret
-	it.sp = uint64(it.frame.CFA)
+	it.sp = uintptr(it.frame.CFA)
 	return true
 }
 
@@ -123,7 +122,7 @@ func (it *StackIterator) Err() error {
 	return it.err
 }
 
-func (dbp *Process) frameInfo(pc, sp uint64, top bool) (Stackframe, error) {
+func (dbp *Process) frameInfo(pc, sp uintptr, top bool) (Stackframe, error) {
 	f, l, fn := dbp.PCToLine(pc)
 	fde, err := dbp.frameEntries.FDEForPC(pc)
 	if err != nil {
@@ -140,17 +139,18 @@ func (dbp *Process) frameInfo(pc, sp uint64, top bool) (Stackframe, error) {
 	if err != nil {
 		return Stackframe{}, err
 	}
-	r := Stackframe{Current: Location{PC: pc, File: f, Line: l, Fn: fn}, CFA: cfa, Ret: binary.LittleEndian.Uint64(data)}
+	r := Stackframe{Current: Location{PC: pc, File: f, Line: l, Fn: fn}, CFA: cfa, Ret: dbp.arch.DecodePtr(data)}
 	if !top {
 		r.Call.File, r.Call.Line, r.Call.Fn = dbp.PCToLine(pc - 1)
-		r.Call.PC, _, _ = dbp.goSymTable.LineToPC(r.Call.File, r.Call.Line)
+		linepc, _, _ := dbp.goSymTable.LineToPC(r.Call.File, r.Call.Line)
+		r.Call.PC = uintptr(linepc)
 	} else {
 		r.Call = r.Current
 	}
 	return r, nil
 }
 
-func (dbp *Process) stacktrace(pc, sp uint64, depth int) ([]Stackframe, error) {
+func (dbp *Process) stacktrace(pc, sp uintptr, depth int) ([]Stackframe, error) {
 	frames := make([]Stackframe, 0, depth+1)
 	it := newStackIterator(dbp, pc, sp)
 	for it.Next() {

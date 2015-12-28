@@ -3,7 +3,6 @@ package proc
 import (
 	"debug/dwarf"
 	"debug/gosym"
-	"encoding/binary"
 	"fmt"
 	"go/constant"
 	"os"
@@ -27,7 +26,7 @@ type Process struct {
 
 	// Breakpoint table, holds information on breakpoints.
 	// Maps instruction address to Breakpoint struct.
-	Breakpoints map[uint64]*Breakpoint
+	Breakpoints map[uintptr]*Breakpoint
 
 	// List of threads mapped as such: pid -> *Thread
 	Threads map[int]*Thread
@@ -62,7 +61,7 @@ func New(pid int) *Process {
 	dbp := &Process{
 		Pid:            pid,
 		Threads:        make(map[int]*Thread),
-		Breakpoints:    make(map[uint64]*Breakpoint),
+		Breakpoints:    make(map[uintptr]*Breakpoint),
 		firstStart:     true,
 		os:             new(OSProcessDetails),
 		ptraceChan:     make(chan func()),
@@ -153,12 +152,12 @@ func (dbp *Process) LoadInformation(path string) error {
 	return nil
 }
 
-func (dbp *Process) FindFileLocation(fileName string, lineno int) (uint64, error) {
+func (dbp *Process) FindFileLocation(fileName string, lineno int) (uintptr, error) {
 	pc, _, err := dbp.goSymTable.LineToPC(fileName, lineno)
 	if err != nil {
 		return 0, err
 	}
-	return pc, nil
+	return uintptr(pc), nil
 }
 
 // Finds address of a function's line
@@ -167,7 +166,7 @@ func (dbp *Process) FindFileLocation(fileName string, lineno int) (uint64, error
 // Pass lineOffset == 0 and firstLine == false if you want the address for the function's entry point
 // Note that setting breakpoints at that address will cause surprising behavior:
 // https://github.com/derekparker/delve/issues/170
-func (dbp *Process) FindFunctionLocation(funcName string, firstLine bool, lineOffset int) (uint64, error) {
+func (dbp *Process) FindFunctionLocation(funcName string, firstLine bool, lineOffset int) (uintptr, error) {
 	origfn := dbp.goSymTable.LookupFunc(funcName)
 	if origfn == nil {
 		return 0, fmt.Errorf("Could not find function %s\n", funcName)
@@ -176,7 +175,7 @@ func (dbp *Process) FindFunctionLocation(funcName string, firstLine bool, lineOf
 	if firstLine {
 		filename, lineno, _ := dbp.goSymTable.PCToLine(origfn.Entry)
 		if filepath.Ext(filename) != ".go" {
-			return origfn.Entry, nil
+			return uintptr(origfn.Entry), nil
 		}
 		for {
 			lineno++
@@ -189,18 +188,18 @@ func (dbp *Process) FindFunctionLocation(funcName string, firstLine bool, lineOf
 					break
 				}
 				if fn.Name == funcName {
-					return pc, nil
+					return uintptr(pc), nil
 				}
 			}
 		}
-		return origfn.Entry, nil
+		return uintptr(origfn.Entry), nil
 	} else if lineOffset > 0 {
 		filename, lineno, _ := dbp.goSymTable.PCToLine(origfn.Entry)
 		breakAddr, _, err := dbp.goSymTable.LineToPC(filename, lineno+lineOffset)
-		return breakAddr, err
+		return uintptr(breakAddr), err
 	}
 
-	return origfn.Entry, nil
+	return uintptr(origfn.Entry), nil
 }
 
 // Sends out a request that the debugged process halt
@@ -213,17 +212,17 @@ func (dbp *Process) RequestManualStop() error {
 // Sets a breakpoint at addr, and stores it in the process wide
 // break point table. Setting a break point must be thread specific due to
 // ptrace actions needing the thread to be in a signal-delivery-stop.
-func (dbp *Process) SetBreakpoint(addr uint64) (*Breakpoint, error) {
+func (dbp *Process) SetBreakpoint(addr uintptr) (*Breakpoint, error) {
 	return dbp.setBreakpoint(dbp.CurrentThread.Id, addr, false)
 }
 
 // Sets a temp breakpoint, for the 'next' command.
-func (dbp *Process) SetTempBreakpoint(addr uint64) (*Breakpoint, error) {
+func (dbp *Process) SetTempBreakpoint(addr uintptr) (*Breakpoint, error) {
 	return dbp.setBreakpoint(dbp.CurrentThread.Id, addr, true)
 }
 
 // Clears a breakpoint.
-func (dbp *Process) ClearBreakpoint(addr uint64) (*Breakpoint, error) {
+func (dbp *Process) ClearBreakpoint(addr uintptr) (*Breakpoint, error) {
 	bp, ok := dbp.FindBreakpoint(addr)
 	if !ok {
 		return nil, NoBreakpointError{addr: addr}
@@ -467,11 +466,10 @@ func (dbp *Process) GoroutinesInfo() ([]*G, error) {
 	if err != nil {
 		return nil, err
 	}
-	allglenBytes, err := dbp.CurrentThread.readMemory(uintptr(addr), 8)
+	allglen, err := dbp.CurrentThread.readPtrRaw(addr)
 	if err != nil {
 		return nil, err
 	}
-	allglen := binary.LittleEndian.Uint64(allglenBytes)
 
 	rdr.Seek(0)
 	allgentryaddr, err := rdr.AddrFor("runtime.allgs")
@@ -482,11 +480,13 @@ func (dbp *Process) GoroutinesInfo() ([]*G, error) {
 			return nil, err
 		}
 	}
-	faddr, err := dbp.CurrentThread.readMemory(uintptr(allgentryaddr), dbp.arch.PtrSize())
-	allgptr := binary.LittleEndian.Uint64(faddr)
+	allgptr, err := dbp.CurrentThread.readPtrRaw(allgentryaddr)
+	if err != nil {
+		return nil, err
+	}
 
-	for i := uint64(0); i < allglen; i++ {
-		g, err := parseG(dbp.CurrentThread, allgptr+(i*uint64(dbp.arch.PtrSize())), true)
+	for i := uintptr(0); i < allglen; i++ {
+		g, err := parseG(dbp.CurrentThread, allgptr+(i*uintptr(dbp.arch.PtrSize())), true)
 		if err != nil {
 			return nil, err
 		}
@@ -524,7 +524,7 @@ func (dbp *Process) Registers() (Registers, error) {
 }
 
 // Returns the PC of the current thread.
-func (dbp *Process) PC() (uint64, error) {
+func (dbp *Process) PC() (uintptr, error) {
 	return dbp.CurrentThread.PC()
 }
 
@@ -549,8 +549,8 @@ func (dbp *Process) Funcs() []gosym.Func {
 }
 
 // Converts an instruction address to a file/line/function.
-func (dbp *Process) PCToLine(pc uint64) (string, int, *gosym.Func) {
-	return dbp.goSymTable.PCToLine(pc)
+func (dbp *Process) PCToLine(pc uintptr) (string, int, *gosym.Func) {
+	return dbp.goSymTable.PCToLine(uint64(pc))
 }
 
 // Finds the breakpoint for the given ID.
@@ -564,9 +564,9 @@ func (dbp *Process) FindBreakpointByID(id int) (*Breakpoint, bool) {
 }
 
 // Finds the breakpoint for the given pc.
-func (dbp *Process) FindBreakpoint(pc uint64) (*Breakpoint, bool) {
+func (dbp *Process) FindBreakpoint(pc uintptr) (*Breakpoint, bool) {
 	// Check to see if address is past the breakpoint, (i.e. breakpoint was hit).
-	if bp, ok := dbp.Breakpoints[pc-uint64(dbp.arch.BreakpointSize())]; ok {
+	if bp, ok := dbp.Breakpoints[pc-uintptr(dbp.arch.BreakpointSize())]; ok {
 		return bp, true
 	}
 	// Directly use addr to lookup breakpoint.
@@ -604,6 +604,8 @@ func initializeDebugProcess(dbp *Process, path string, attach bool) (*Process, e
 	switch runtime.GOARCH {
 	case "amd64":
 		dbp.arch = AMD64Arch()
+	case "arm":
+		dbp.arch = ARMArch()
 	}
 
 	if err := dbp.updateThreadList(); err != nil {
@@ -661,7 +663,7 @@ func (dbp *Process) handleBreakpointOnThread(id int) (*Thread, error) {
 	if dbp.halt {
 		return thread, nil
 	}
-	fn := dbp.goSymTable.PCToFunc(pc)
+	fn := dbp.goSymTable.PCToFunc(uint64(pc))
 	if fn != nil && fn.Name == "runtime.breakpoint" {
 		for i := 0; i < 2; i++ {
 			if err := thread.Step(); err != nil {

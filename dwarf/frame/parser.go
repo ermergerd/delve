@@ -18,15 +18,17 @@ type parseContext struct {
 	common  *CommonInformationEntry
 	frame   *FrameDescriptionEntry
 	length  uint32
+	order   binary.ByteOrder
+	ptrSize uint
 }
 
 // Parse takes in data (a byte slice) and returns a slice of
 // commonInformationEntry structures. Each commonInformationEntry
 // has a slice of frameDescriptionEntry structures.
-func Parse(data []byte) FrameDescriptionEntries {
+func Parse(data []byte, order binary.ByteOrder, ptrSize uint) FrameDescriptionEntries {
 	var (
 		buf  = bytes.NewBuffer(data)
-		pctx = &parseContext{buf: buf, entries: NewFrameIndex()}
+		pctx = &parseContext{buf: buf, entries: NewFrameIndex(), order: order, ptrSize: ptrSize}
 	)
 
 	for fn := parselength; buf.Len() != 0; {
@@ -56,18 +58,28 @@ func parselength(ctx *parseContext) parsefunc {
 
 func parseFDE(ctx *parseContext) parsefunc {
 	r := ctx.buf.Next(int(ctx.length))
-
-	ctx.frame.begin = binary.LittleEndian.Uint64(r[:8])
-	ctx.frame.end = binary.LittleEndian.Uint64(r[8:16])
+	
+	if ctx.ptrSize == 4 {
+		ctx.frame.begin = uintptr(ctx.order.Uint32(r[:4]))
+		ctx.frame.end = uintptr(ctx.order.Uint32(r[4:8]))
+		
+		// The rest of this entry consists of the instructions
+		// so we can just grab all of the data from the buffer
+		// cursor to length.
+		ctx.frame.Instructions = r[8:]
+	} else if ctx.ptrSize == 8 {
+		ctx.frame.begin = uintptr(ctx.order.Uint64(r[:8]))
+		ctx.frame.end = uintptr(ctx.order.Uint64(r[8:16]))
+		
+		// The rest of this entry consists of the instructions
+		// so we can just grab all of the data from the buffer
+		// cursor to length.
+		ctx.frame.Instructions = r[16:]
+	}
 
 	// Insert into the tree after setting address range begin
 	// otherwise compares won't work.
 	ctx.entries = append(ctx.entries, ctx.frame)
-
-	// The rest of this entry consists of the instructions
-	// so we can just grab all of the data from the buffer
-	// cursor to length.
-	ctx.frame.Instructions = r[16:]
 	ctx.length = 0
 
 	return parselength
@@ -89,7 +101,8 @@ func parseCIE(ctx *parseContext) parsefunc {
 	ctx.common.DataAlignmentFactor, _ = util.DecodeSLEB128(buf)
 
 	// parse return address register
-	ctx.common.ReturnAddressRegister, _ = util.DecodeULEB128(buf)
+	returnAddressRegister, _ := util.DecodeULEB128(buf)
+	ctx.common.ReturnAddressRegister = uintptr(returnAddressRegister)
 
 	// parse initial instructions
 	// The rest of this entry consists of the instructions

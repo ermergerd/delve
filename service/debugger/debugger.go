@@ -142,7 +142,7 @@ func (d *Debugger) State() (*api.DebuggerState, error) {
 func (d *Debugger) CreateBreakpoint(requestedBp *api.Breakpoint) (*api.Breakpoint, error) {
 	var (
 		createdBp *api.Breakpoint
-		addr      uint64
+		addr      uintptr
 		err       error
 	)
 	switch {

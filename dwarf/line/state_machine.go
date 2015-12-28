@@ -11,7 +11,7 @@ import (
 type Location struct {
 	File    string
 	Line    int
-	Address uint64
+	Address uintptr
 	Delta   int
 }
 
@@ -19,7 +19,7 @@ type StateMachine struct {
 	dbl             *DebugLineInfo
 	file            string
 	line            int
-	address         uint64
+	address         uintptr
 	column          uint
 	isStmt          bool
 	basicBlock      bool
@@ -74,10 +74,10 @@ func newStateMachine(dbl *DebugLineInfo) *StateMachine {
 
 // Returns all PCs for a given file/line. Useful for loops where the 'for' line
 // could be split amongst 2 PCs.
-func (dbl *DebugLines) AllPCsForFileLine(f string, l int) (pcs []uint64) {
+func (dbl *DebugLines) AllPCsForFileLine(f string, l int) (pcs []uintptr) {
 	var (
 		foundFile bool
-		lastAddr  uint64
+		lastAddr  uintptr
 		lineInfo  = dbl.GetLineInfo(f)
 		sm        = newStateMachine(lineInfo)
 		buf       = bytes.NewBuffer(lineInfo.Instructions)
@@ -106,11 +106,11 @@ func (dbl *DebugLines) AllPCsForFileLine(f string, l int) (pcs []uint64) {
 	return
 }
 
-func (dbl *DebugLines) AllPCsBetween(begin, end uint64, filename string) []uint64 {
+func (dbl *DebugLines) AllPCsBetween(begin, end uintptr, filename string) []uintptr {
 	lineInfo := dbl.GetLineInfo(filename)
 	var (
-		pcs      []uint64
-		lastaddr uint64
+		pcs      []uintptr
+		lastaddr uintptr
 		sm       = newStateMachine(lineInfo)
 		buf      = bytes.NewBuffer(lineInfo.Instructions)
 	)
@@ -151,7 +151,7 @@ func execSpecialOpcode(sm *StateMachine, instr byte) {
 
 	sm.lastDelta = int(sm.dbl.Prologue.LineBase + int8(decoded%sm.dbl.Prologue.LineRange))
 	sm.line += sm.lastDelta
-	sm.address += uint64(decoded / sm.dbl.Prologue.LineRange)
+	sm.address += uintptr(decoded / sm.dbl.Prologue.LineRange)
 	sm.basicBlock = false
 	sm.lastWasStandard = false
 }
@@ -184,7 +184,7 @@ func copyfn(sm *StateMachine, buf *bytes.Buffer) {
 
 func advancepc(sm *StateMachine, buf *bytes.Buffer) {
 	addr, _ := util.DecodeULEB128(buf)
-	sm.address += addr * uint64(sm.dbl.Prologue.MinInstrLength)
+	sm.address += uintptr(addr * uint64(sm.dbl.Prologue.MinInstrLength))
 }
 
 func advanceline(sm *StateMachine, buf *bytes.Buffer) {
@@ -212,22 +212,23 @@ func setbasicblock(sm *StateMachine, buf *bytes.Buffer) {
 }
 
 func constaddpc(sm *StateMachine, buf *bytes.Buffer) {
-	sm.address += (255 / uint64(sm.dbl.Prologue.LineRange))
+	sm.address += uintptr(255 / uint64(sm.dbl.Prologue.LineRange))
 }
 
 func fixedadvancepc(sm *StateMachine, buf *bytes.Buffer) {
 	var operand uint16
 	binary.Read(buf, binary.LittleEndian, &operand)
 
-	sm.address += uint64(operand)
+	sm.address += uintptr(operand)
 }
 
 func endsequence(sm *StateMachine, buf *bytes.Buffer) {
 	sm.endSeq = true
 }
 
+// TODO: Use the architecture endianness
 func setaddress(sm *StateMachine, buf *bytes.Buffer) {
-	var addr uint64
+	var addr uintptr
 
 	binary.Read(buf, binary.LittleEndian, &addr)
 

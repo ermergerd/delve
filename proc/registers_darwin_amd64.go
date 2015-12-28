@@ -67,23 +67,23 @@ func (r *Regs) String() string {
 	return buf.String()
 }
 
-func (r *Regs) PC() uint64 {
-	return r.rip
+func (r *Regs) PC() uintptr {
+	return uintptr(r.rip)
 }
 
-func (r *Regs) SP() uint64 {
-	return r.rsp
+func (r *Regs) SP() uintptr {
+	return uintptr(r.rsp)
 }
 
-func (r *Regs) CX() uint64 {
-	return r.rcx
+func (r *Regs) CX() uintptr {
+	return uintptr(r.rcx)
 }
 
-func (r *Regs) TLS() uint64 {
-	return r.gs_base
+func (r *Regs) TLS() uintptr {
+	return uintptr(r.gs_base)
 }
 
-func (r *Regs) SetPC(thread *Thread, pc uint64) error {
+func (r *Regs) SetPC(thread *Thread, pc uintptr) error {
 	kret := C.set_pc(thread.os.thread_act, C.uint64_t(pc))
 	if kret != C.KERN_SUCCESS {
 		return fmt.Errorf("could not set pc")

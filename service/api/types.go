@@ -27,7 +27,7 @@ type Breakpoint struct {
 	// ID is a unique identifier for the breakpoint.
 	ID int `json:"id"`
 	// Addr is the address of the breakpoint.
-	Addr uint64 `json:"addr"`
+	Addr uintptr `json:"addr"`
 	// File is the source file for the breakpoint.
 	File string `json:"file"`
 	// Line is a line in File for the breakpoint.
@@ -55,7 +55,7 @@ type Thread struct {
 	// ID is a unique identifier for the thread.
 	ID int `json:"id"`
 	// PC is the current program counter for the thread.
-	PC uint64 `json:"pc"`
+	PC uintptr `json:"pc"`
 	// File is the file for the program counter.
 	File string `json:"file"`
 	// Line is the line number for the program counter.
@@ -65,7 +65,7 @@ type Thread struct {
 }
 
 type Location struct {
-	PC       uint64    `json:"pc"`
+	PC       uintptr    `json:"pc"`
 	File     string    `json:"file"`
 	Line     int       `json:"line"`
 	Function *Function `json:"function,omitempty"`

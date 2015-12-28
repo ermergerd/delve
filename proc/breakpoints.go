@@ -11,10 +11,10 @@ type Breakpoint struct {
 	File         string
 	Line         int
 
-	Addr         uint64 // Address breakpoint is set for.
-	OriginalData []byte // If software breakpoint, the data we replace with breakpoint instruction.
-	ID           int    // Monotonically increasing ID.
-	Temp         bool   // Whether this is a temp breakpoint (for next'ing).
+	Addr         uintptr // Address breakpoint is set for.
+	OriginalData []byte  // If software breakpoint, the data we replace with breakpoint instruction.
+	ID           int     // Monotonically increasing ID.
+	Temp         bool    // Whether this is a temp breakpoint (for next'ing).
 
 	// Breakpoint information
 	Tracepoint    bool           // Tracepoint flag
@@ -43,7 +43,7 @@ func (bp *Breakpoint) Clear(thread *Thread) (*Breakpoint, error) {
 type BreakpointExistsError struct {
 	file string
 	line int
-	addr uint64
+	addr uintptr
 }
 
 func (bpe BreakpointExistsError) Error() string {
@@ -53,14 +53,14 @@ func (bpe BreakpointExistsError) Error() string {
 // InvalidAddressError represents the result of
 // attempting to set a breakpoint at an invalid address.
 type InvalidAddressError struct {
-	address uint64
+	address uintptr
 }
 
 func (iae InvalidAddressError) Error() string {
 	return fmt.Sprintf("Invalid address %#v\n", iae.address)
 }
 
-func (dbp *Process) setBreakpoint(tid int, addr uint64, temp bool) (*Breakpoint, error) {
+func (dbp *Process) setBreakpoint(tid int, addr uintptr, temp bool) (*Breakpoint, error) {
 	if bp, ok := dbp.FindBreakpoint(addr); ok {
 		return nil, BreakpointExistsError{bp.File, bp.Line, bp.Addr}
 	}
@@ -88,7 +88,7 @@ func (dbp *Process) setBreakpoint(tid int, addr uint64, temp bool) (*Breakpoint,
 	}
 
 	thread := dbp.Threads[tid]
-	originalData, err := thread.readMemory(uintptr(addr), dbp.arch.BreakpointSize())
+	originalData, err := thread.readMemory(addr, dbp.arch.BreakpointSize())
 	if err != nil {
 		return nil, err
 	}
@@ -101,14 +101,14 @@ func (dbp *Process) setBreakpoint(tid int, addr uint64, temp bool) (*Breakpoint,
 	return newBreakpoint, nil
 }
 
-func (dbp *Process) writeSoftwareBreakpoint(thread *Thread, addr uint64) error {
-	_, err := thread.writeMemory(uintptr(addr), dbp.arch.BreakpointInstruction())
+func (dbp *Process) writeSoftwareBreakpoint(thread *Thread, addr uintptr) error {
+	_, err := thread.writeMemory(addr, dbp.arch.BreakpointInstruction())
 	return err
 }
 
 // Error thrown when trying to clear a breakpoint that does not exist.
 type NoBreakpointError struct {
-	addr uint64
+	addr uintptr
 }
 
 func (nbp NoBreakpointError) Error() string {
